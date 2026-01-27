@@ -172,10 +172,12 @@ static void bt_tx_task(void *param) {
     uint8_t *packet;
 
     while(1) {
+        /* TX packet from Q */
         if (atomic_test_bit(&bt_flags, BT_CTRL_READY)) {
             packet = (uint8_t *)xRingbufferReceive(txq_hdl, &packet_len, portMAX_DELAY);
             if (packet) {
                 if (packet[0] == 0xFF) {
+                    /* Internal wait packet */
                     vTaskDelay(packet[1] / portTICK_PERIOD_MS);
                 }
                 else {
@@ -196,57 +198,70 @@ static void bt_tx_task(void *param) {
 static void bt_fb_task(void *param) {
     uint32_t *fb_len;
     struct raw_fb *fb_data = NULL;
-    uint32_t delay_cnt = BT_FB_TASK_DELAY_CNT;
-    struct bt_dev *device = NULL; // Movido fuera para optimizar el stack
-    struct bt_data *bt_data = NULL;
+    uint32_t delay_cnt = BT_FB_TASK_DELAY_CNT; /* 100ms * 30 = 3sec */
+    struct bt_dev *device = NULL; // Movido fuera del loop para optimizar el stack
 
     while(1) {
         bool fb_changed = false;
+        /* Look for rumble/led feedback data */
         while ((fb_data = (struct raw_fb *)queue_bss_dequeue(wired_adapter.input_q_hdl, &fb_len))) {
-            // Modificación Paso B: Acceso directo al índice del dispositivo activo
+            struct bt_data *bt_data = NULL;
+
+            // Paso B: Acceso directo al índice para evitar búsqueda iterativa
             if (fb_data->header.wired_id < BT_MAX_DEV) {
                 device = &bt_dev[fb_data->header.wired_id];
                 
-                // Verificamos que el dispositivo esté realmente inicializado antes de procesar
+                // Solo procesamos si el dispositivo está realmente inicializado
                 if (atomic_test_bit(&device->flags, BT_DEV_HID_INIT_DONE)) {
                     bt_data = &bt_adapter.data[device->ids.id];
-
-                    switch (fb_data->header.type) {
-                        case FB_TYPE_MEM_WRITE:
-                            mc_storage_update();
-                            break;
-                        case FB_TYPE_STATUS_LED:
-                        case FB_TYPE_PLAYER_LED:
-                            if (device->ids.subtype == BT_PS5_DS) {
-                                struct bt_hidp_ps5_set_conf ps5_clear_led = {
-                                    .conf0 = 0x02,
-                                    .conf1 = 0x08,
-                                };
-                                bt_hid_cmd_ps_set_conf(device, (void *)&ps5_clear_led);
-                            }
-                        case FB_TYPE_RUMBLE:
-                            fb_changed = adapter_bridge_fb(fb_data, bt_data);
-                            delay_cnt = 0;
-                            break;
-                        case FB_TYPE_GAME_ID:
-                        case FB_TYPE_SYS_ID:
-                            if (gid_update(fb_data)) {
-                                config_init(GAMEID_CFG);
-                            }
-                            break;
-                        default:
-                            break;
-                    }
                 }
+            }
+
+            switch (fb_data->header.type) {
+                case FB_TYPE_MEM_WRITE:
+                    mc_storage_update();
+                    break;
+                case FB_TYPE_STATUS_LED:
+                case FB_TYPE_PLAYER_LED:
+                    if (device && device->ids.subtype == BT_PS5_DS) {
+                        /* We need to clear LEDs before setting them */
+                        struct bt_hidp_ps5_set_conf ps5_clear_led = {
+                            .conf0 = 0x02,
+                            .conf1 = 0x08,
+                        };
+                        bt_hid_cmd_ps_set_conf(device, (void *)&ps5_clear_led);
+                    }
+                    /* Fallthrough */
+                case FB_TYPE_RUMBLE:
+                    if (bt_data) {
+                        fb_changed = adapter_bridge_fb(fb_data, bt_data);
+                        delay_cnt = 0;
+                    }
+                    break;
+                case FB_TYPE_GAME_ID:
+                    if (gid_update(fb_data)) {
+                        config_init(GAMEID_CFG);
+                    }
+                    break;
+                case FB_TYPE_SYS_ID:
+                    if (gid_update_sys(fb_data)) {
+                        config_init(GAMEID_CFG);
+                    }
+                    break;
+                default:
+                    break;
             }
             queue_bss_return(wired_adapter.input_q_hdl, (uint8_t *)fb_data, fb_len);
         }
 
+        /* TX Feedback every 10 ms if rumble on, every 3 sec otherwise */
         if (delay_cnt-- == 0 || fb_changed) {
             for (uint32_t i = 0; i < BT_MAX_DEV; i++) {
                 device = &bt_dev[i];
+
                 if (atomic_test_bit(&device->flags, BT_DEV_HID_INIT_DONE)) {
-                    bt_data = &bt_adapter.data[device->ids.id];
+                    struct bt_data *bt_data = &bt_adapter.data[device->ids.id];
+
                     bt_hid_feedback(device, bt_data->base.output);
                 }
             }
@@ -258,13 +273,16 @@ static void bt_fb_task(void *param) {
 
 static void bt_host_task(void *param) {
     while (1) {
+        /* Per device housekeeping */
         for (uint32_t i = 0; i < BT_MAX_DEV; i++) {
             struct bt_dev *device = &bt_dev[i];
             struct bt_data *bt_data = &bt_adapter.data[i];
 
+            /* Parse SDP data if available */
             if (atomic_test_bit(&device->flags, BT_DEV_DEVICE_FOUND)) {
                 if (atomic_test_bit(&device->flags, BT_DEV_SDP_DATA)) {
                     int32_t old_type = device->ids.type;
+
                     bt_sdp_parser(bt_data);
                     if (old_type != device->ids.type) {
                         if (atomic_test_bit(&device->flags, BT_DEV_HID_INTR_READY)) {
@@ -275,17 +293,20 @@ static void bt_host_task(void *param) {
                 }
             }
         }
+
+        /* Update turbo mask for parallel system */
         wired_para_turbo_mask_hdlr();
+
         vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 }
 
 static void bt_host_acl_hdlr(struct bt_hci_pkt *bt_hci_acl_pkt, uint32_t len) {
-    struct bt_dev *device = NULL; 
+    struct bt_dev *device = NULL;
     struct bt_hci_pkt *pkt = bt_hci_acl_pkt;
     uint32_t pkt_len = len;
-
-    // Modificación Paso B: Búsqueda acelerada de dispositivo por handle
+    
+    // Paso B: Resolución acelerada del handle del dispositivo
     bt_host_get_dev_from_handle(pkt->acl_hdr.handle, &device);
 
     if (bt_acl_flags(pkt->acl_hdr.handle) == BT_ACL_CONT) {
@@ -323,7 +344,6 @@ static void bt_host_acl_hdlr(struct bt_hci_pkt *bt_hci_acl_pkt, uint32_t len) {
         bt_l2cap_le_sig_hdlr(device, pkt, pkt_len);
     }
     else if (pkt->l2cap_hdr.cid == BT_L2CAP_CID_SMP) {
-        bt_host_get_dev_from_handle(pkt->acl_hdr.handle, &device); // Re-validación rápida
         bt_smp_hdlr(device, pkt, pkt_len);
     }
     else if (pkt->l2cap_hdr.cid == device->sdp_tx_chan.scid ||
@@ -355,6 +375,7 @@ static int bt_host_rx_pkt(uint8_t *data, uint16_t len) {
         default:
             break;
     }
+
     return 0;
 }
 
@@ -485,12 +506,15 @@ reset_dev:
 
 void bt_host_q_wait_pkt(uint32_t ms) {
     uint8_t packet[2] = {0xFF, ms};
+
     bt_host_txq_add(packet, sizeof(packet));
 }
 
 int32_t bt_host_init(void) {
     int32_t ret;
+
     bt_host_load_bdaddr_from_nvs();
+
     bt_mon_init();
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -504,6 +528,7 @@ int32_t bt_host_init(void) {
     }
 
     esp_vhci_host_register_callback(&vhci_host_cb);
+
     bt_host_tx_pkt_ready();
 
     txq_hdl = xRingbufferCreate(256*8, RINGBUF_TYPE_NOSPLIT);
