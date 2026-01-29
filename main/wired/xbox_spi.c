@@ -43,6 +43,8 @@ static uint8_t active_port = 0;
 static uint8_t packet[XBOX_SPI_PACKET_SIZE];
 static uint8_t rx_packet[XBOX_SPI_PACKET_SIZE];
 static bool monitor_started = false;
+static uint8_t rumble_lf_cache[XBOX_SPI_PORT_MAX];
+static uint8_t rumble_hf_cache[XBOX_SPI_PORT_MAX];
 static struct spi_cfg cfg = {
     .hw = &SPI2,
     .write_bit_order = 0,
@@ -104,14 +106,27 @@ static void xbox_spi_handle_fb(void) {
         return;
     }
 
+    if (port != active_port) {
+        return;
+    }
+
     if (flags & XBOX_SPI_FB_FLAG_RUMBLE) {
         if (config.out_cfg[port].acc_mode & ACC_RUMBLE) {
+            uint8_t lf = rx_packet[4];
+            uint8_t hf = rx_packet[5];
+
+            if (rumble_lf_cache[port] == lf && rumble_hf_cache[port] == hf) {
+                return;
+            }
+
+            rumble_lf_cache[port] = lf;
+            rumble_hf_cache[port] = hf;
             struct raw_fb fb_data = {0};
             fb_data.header.wired_id = port;
             fb_data.header.type = FB_TYPE_RUMBLE;
             fb_data.header.data_len = 2;
-            fb_data.data[0] = rx_packet[4];
-            fb_data.data[1] = rx_packet[5];
+            fb_data.data[0] = lf;
+            fb_data.data[1] = hf;
             adapter_q_fb(&fb_data);
         }
     }
@@ -157,6 +172,7 @@ static void xbox_spi_monitor_cs(void) {
             prev_state = cur_state;
         }
         ets_delay_us(2);
+        taskYIELD();
     }
 }
 
