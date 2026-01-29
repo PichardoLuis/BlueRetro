@@ -24,7 +24,10 @@
 #define XBOX_SPI_PAYLOAD_SIZE 32
 #define XBOX_SPI_PACKET_SIZE (XBOX_SPI_PAYLOAD_SIZE + 4)
 
-#define XBOX_SPI_MAGIC 0x58
+#define XBOX_SPI_MAGIC_STATE 0x58
+#define XBOX_SPI_MAGIC_FB 0x52
+
+#define XBOX_SPI_FB_FLAG_RUMBLE 0x01
 
 /* Shared SPI bus + per-port CS */
 #define XBOX_SPI_SCK_PIN 18
@@ -38,6 +41,7 @@
 
 static uint8_t active_port = 0;
 static uint8_t packet[XBOX_SPI_PACKET_SIZE];
+static uint8_t rx_packet[XBOX_SPI_PACKET_SIZE];
 static bool monitor_started = false;
 static struct spi_cfg cfg = {
     .hw = &SPI2,
@@ -67,7 +71,7 @@ static inline void xbox_spi_build_packet(uint8_t port) {
     uint8_t *out = wired_adapter.data[port].output;
     uint8_t *mask = wired_adapter.data[port].output_mask;
 
-    packet[0] = XBOX_SPI_MAGIC;
+    packet[0] = XBOX_SPI_MAGIC_STATE;
     packet[1] = port;
     packet[2] = wired_adapter.data[port].frame_cnt;
     packet[3] = config.out_cfg[port].dev_mode;
@@ -78,6 +82,39 @@ static inline void xbox_spi_build_packet(uint8_t port) {
 
     ++wired_adapter.data[port].frame_cnt;
     xbox_spi_write_buffer(packet, XBOX_SPI_PACKET_SIZE);
+}
+
+static inline void xbox_spi_read_buffer(uint8_t *data, uint32_t len) {
+    for (uint32_t i = 0; i < len; i += 4) {
+        uint32_t word = SPI2.data_buf[(i / 4)];
+
+        memcpy(&data[i], &word, 4);
+    }
+}
+
+static void xbox_spi_handle_fb(void) {
+    if (rx_packet[0] != XBOX_SPI_MAGIC_FB) {
+        return;
+    }
+
+    uint8_t port = rx_packet[1];
+    uint8_t flags = rx_packet[3];
+
+    if (port >= XBOX_SPI_PORT_MAX) {
+        return;
+    }
+
+    if (flags & XBOX_SPI_FB_FLAG_RUMBLE) {
+        if (config.out_cfg[port].acc_mode & ACC_RUMBLE) {
+            struct raw_fb fb_data = {0};
+            fb_data.header.wired_id = port;
+            fb_data.header.type = FB_TYPE_RUMBLE;
+            fb_data.header.data_len = 2;
+            fb_data.data[0] = rx_packet[4];
+            fb_data.data[1] = rx_packet[5];
+            adapter_q_fb(&fb_data);
+        }
+    }
 }
 
 static inline void xbox_spi_select_port(uint8_t port) {
@@ -101,6 +138,14 @@ static void xbox_spi_monitor_cs(void) {
     while (1) {
         uint32_t cur_state = GPIO.in & cs_mask;
         uint32_t change = cur_state ^ prev_state;
+
+        if (SPI2.slave.trans_done) {
+            xbox_spi_read_buffer(rx_packet, XBOX_SPI_PACKET_SIZE);
+            xbox_spi_handle_fb();
+            xbox_spi_build_packet(active_port);
+            SPI2.slave.trans_done = 0;
+            SPI2.cmd.usr = 1;
+        }
 
         if (change && SPI2.cmd.usr == 0) {
             if (!(cur_state & XBOX_SPI_CS_P1_MASK)) {
