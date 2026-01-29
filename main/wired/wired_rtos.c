@@ -30,6 +30,7 @@ static const wired_init_t wired_init[WIRED_MAX] = {
     NULL, /* N64 */
     NULL, /* DC */
     NULL, /* PS2 */
+    NULL, /* XBOX */
     NULL, /* GC */
     NULL, /* WII_EXT */
     NULL, /* VB */
@@ -43,4 +44,3 @@ void wired_rtos_init(void) {
         wired_init[wired_adapter.system_id]();
     }
 }
-

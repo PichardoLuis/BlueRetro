@@ -15,6 +15,7 @@
 #include "pcfx_spi.h"
 #include "ps_spi.h"
 #include "real_spi.h"
+#include "xbox_spi.h"
 #include "snes_spi.h"
 #include "jag_io.h"
 #include "wii_i2c.h"
@@ -46,6 +47,7 @@ static const char *sys_name[WIRED_MAX] = {
     "N64",
     "DC",
     "PS2",
+    "XBOX",
     "GC",
     "Wii-EXT",
     "VB",
@@ -73,6 +75,7 @@ static const wired_init_t wired_init[WIRED_MAX] = {
     nsi_init, /* N64 */
     maple_init, /* DC */
     ps_spi_init, /* PS2 */
+    xbox_spi_init, /* XBOX */
     nsi_init, /* GC */
     wii_i2c_init, /* WII_EXT */
     npiso_init, /* VB */
@@ -100,6 +103,7 @@ static const wired_port_cfg_t wired_port_cfg[WIRED_MAX] = {
     nsi_port_cfg, /* N64 */
     maple_port_cfg, /* DC */
     ps_spi_port_cfg, /* PS2 */
+    NULL, /* XBOX */
     nsi_port_cfg, /* GC */
     wii_i2c_port_cfg, /* WII_EXT */
     NULL, /* VB */

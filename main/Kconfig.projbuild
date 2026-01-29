@@ -73,6 +73,11 @@ menu "BlueRetro"
             help
                 Select this to support only PSX & PS2.
 
+        config BLUERETRO_SYSTEM_XBOX
+            bool "XBOX"
+            help
+                Select this to support only XBOX.
+
         config BLUERETRO_SYSTEM_SATURN
             bool "SATURN"
             help

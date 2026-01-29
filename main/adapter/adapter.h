@@ -85,6 +85,7 @@ enum {
     N64,
     DC,
     PS2,
+    XBOX,
     GC,
     WII_EXT,
     VBOY,
@@ -614,4 +615,3 @@ static inline void bt_type_update(int32_t dev_id, int32_t type, uint32_t subtype
 }
 
 #endif /* _ADAPTER_H_ */
-
