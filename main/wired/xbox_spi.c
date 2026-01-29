@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdbool.h>
 #include <string.h>
 #include "soc/io_mux_reg.h"
 #include "esp_private/periph_ctrl.h"
@@ -11,6 +12,8 @@
 #include <esp32/rom/gpio.h>
 #include "hal/clk_gate_ll.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "system/gpio.h"
 #include "adapter/adapter.h"
 #include "adapter/config.h"
@@ -35,6 +38,7 @@
 
 static uint8_t active_port = 0;
 static uint8_t packet[XBOX_SPI_PACKET_SIZE];
+static bool monitor_started = false;
 static struct spi_cfg cfg = {
     .hw = &SPI2,
     .write_bit_order = 0,
@@ -111,6 +115,11 @@ static void xbox_spi_monitor_cs(void) {
     }
 }
 
+static void xbox_spi_monitor_task(void *arg) {
+    (void)arg;
+    xbox_spi_monitor_cs();
+}
+
 void xbox_spi_init(uint32_t package) {
     gpio_config_t io_conf = {0};
     const uint32_t cs_mask = XBOX_SPI_CS_P1_MASK | XBOX_SPI_CS_P2_MASK;
@@ -150,5 +159,8 @@ void xbox_spi_init(uint32_t package) {
         active_port = 0;
     }
     xbox_spi_select_port(active_port);
-    xbox_spi_monitor_cs();
+    if (!monitor_started) {
+        monitor_started = true;
+        xTaskCreatePinnedToCore(xbox_spi_monitor_task, "xbox_spi_cs", 2048, NULL, 12, NULL, 0);
+    }
 }
