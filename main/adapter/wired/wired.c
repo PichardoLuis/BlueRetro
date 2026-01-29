@@ -15,6 +15,7 @@
 #include "jag.h"
 #include "pcfx.h"
 #include "ps.h"
+#include "xbox.h"
 #include "saturn.h"
 #include "jvs.h"
 #include "n64.h"
@@ -45,6 +46,7 @@ static from_generic_t from_generic_func[WIRED_MAX] = {
     n64_from_generic, /* N64 */
     dc_from_generic, /* DC */
     ps_from_generic, /* PS2 */
+    xbox_from_generic, /* XBOX */
     gc_from_generic, /* GC */
     wii_from_generic, /* WII_EXT */
     npiso_from_generic, /* VB */
@@ -72,6 +74,7 @@ static fb_to_generic_t fb_to_generic_func[WIRED_MAX] = {
     n64_fb_to_generic, /* N64 */
     dc_fb_to_generic, /* DC */
     ps_fb_to_generic, /* PS2 */
+    xbox_fb_to_generic, /* XBOX */
     gc_fb_to_generic, /* GC */
     NULL, /* WII_EXT */
     NULL, /* VB */
@@ -99,6 +102,7 @@ static meta_init_t meta_init_func[WIRED_MAX] = {
     n64_meta_init, /* N64 */
     dc_meta_init, /* DC */
     ps_meta_init, /* PS2 */
+    xbox_meta_init, /* XBOX */
     gc_meta_init, /* GC */
     wii_meta_init, /* WII_EXT */
     npiso_meta_init, /* VB */
@@ -126,6 +130,7 @@ static DRAM_ATTR buffer_init_t buffer_init_func[WIRED_MAX] = {
     n64_init_buffer, /* N64 */
     dc_init_buffer, /* DC */
     ps_init_buffer, /* PS2 */
+    xbox_init_buffer, /* XBOX */
     gc_init_buffer, /* GC */
     wii_init_buffer, /* WII_EXT */
     npiso_init_buffer, /* VB */
@@ -280,4 +285,3 @@ void IRAM_ATTR wired_gen_turbo_mask_axes8(struct wired_data *wired_data, uint8_t
         }
     }
 }
-
