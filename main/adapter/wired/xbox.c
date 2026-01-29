@@ -26,6 +26,7 @@ void xbox_fb_to_generic(int32_t dev_mode, struct raw_fb *raw_fb_data, struct gen
     if (raw_fb_data->header.data_len == 0) {
         fb_data->state = 0;
         fb_data->lf_pwr = fb_data->hf_pwr = 0;
+        fb_data->led = 0;
     }
     else {
         switch (fb_data->type) {
@@ -39,6 +40,12 @@ void xbox_fb_to_generic(int32_t dev_mode, struct raw_fb *raw_fb_data, struct gen
                 fb_data->lf_pwr = 0;
                 fb_data->hf_pwr = 0;
                 fb_data->led = raw_fb_data->data[0];
+                break;
+            default:
+                fb_data->state = 0;
+                fb_data->lf_pwr = 0;
+                fb_data->hf_pwr = 0;
+                fb_data->led = 0;
                 break;
         }
     }

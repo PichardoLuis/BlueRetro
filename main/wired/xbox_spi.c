@@ -45,7 +45,7 @@ static uint8_t rx_packet[XBOX_SPI_PACKET_SIZE];
 static bool monitor_started = false;
 static uint8_t rumble_lf_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
 static uint8_t rumble_hf_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
-static_assert((XBOX_SPI_PACKET_SIZE % 4) == 0, "XBOX SPI packet size must be 4-byte aligned");
+_Static_assert((XBOX_SPI_PACKET_SIZE % 4) == 0, "XBOX SPI packet size must be 4-byte aligned");
 static struct spi_cfg cfg = {
     .hw = &SPI2,
     .write_bit_order = 0,
@@ -83,7 +83,6 @@ static inline void xbox_spi_build_packet(uint8_t port) {
         packet[4 + i] = mask[i] ? mask[i] : out[i];
     }
 
-    ++wired_adapter.data[port].frame_cnt;
     xbox_spi_write_buffer(packet, XBOX_SPI_PACKET_SIZE);
 }
 
@@ -160,6 +159,7 @@ static void xbox_spi_monitor_cs(void) {
             SPI2.slave.trans_done = 0;
             xbox_spi_read_buffer(rx_packet, XBOX_SPI_PACKET_SIZE);
             xbox_spi_handle_fb();
+            ++wired_adapter.data[active_port].frame_cnt;
             xbox_spi_build_packet(active_port);
             SPI2.cmd.usr = 1;
         }
@@ -234,6 +234,6 @@ void xbox_spi_init(uint32_t package) {
     xbox_spi_select_port(active_port);
     if (!monitor_started) {
         monitor_started = true;
-        xTaskCreatePinnedToCore(xbox_spi_monitor_task, "xbox_spi_cs", 2048, NULL, 12, NULL, 0);
+        xTaskCreatePinnedToCore(xbox_spi_monitor_task, "xbox_spi_cs", 2048, NULL, 12, NULL, 1);
     }
 }
