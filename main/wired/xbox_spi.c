@@ -43,8 +43,9 @@ static uint8_t active_port = 0;
 static uint8_t packet[XBOX_SPI_PACKET_SIZE];
 static uint8_t rx_packet[XBOX_SPI_PACKET_SIZE];
 static bool monitor_started = false;
-static uint8_t rumble_lf_cache[XBOX_SPI_PORT_MAX];
-static uint8_t rumble_hf_cache[XBOX_SPI_PORT_MAX];
+static uint8_t rumble_lf_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
+static uint8_t rumble_hf_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
+static_assert((XBOX_SPI_PACKET_SIZE % 4) == 0, "XBOX SPI packet size must be 4-byte aligned");
 static struct spi_cfg cfg = {
     .hw = &SPI2,
     .write_bit_order = 0,
@@ -149,30 +150,41 @@ static inline void xbox_spi_select_port(uint8_t port) {
 static void xbox_spi_monitor_cs(void) {
     const uint32_t cs_mask = XBOX_SPI_CS_P1_MASK | XBOX_SPI_CS_P2_MASK;
     uint32_t prev_state = GPIO.in & cs_mask;
+    uint32_t spin = 0;
 
     while (1) {
         uint32_t cur_state = GPIO.in & cs_mask;
         uint32_t change = cur_state ^ prev_state;
 
         if (SPI2.slave.trans_done) {
+            SPI2.slave.trans_done = 0;
             xbox_spi_read_buffer(rx_packet, XBOX_SPI_PACKET_SIZE);
             xbox_spi_handle_fb();
             xbox_spi_build_packet(active_port);
-            SPI2.slave.trans_done = 0;
             SPI2.cmd.usr = 1;
         }
 
         if (change && SPI2.cmd.usr == 0) {
-            if (!(cur_state & XBOX_SPI_CS_P1_MASK)) {
+            bool cs1 = !(cur_state & XBOX_SPI_CS_P1_MASK);
+            bool cs2 = !(cur_state & XBOX_SPI_CS_P2_MASK);
+
+            if (cs1 && cs2) {
+                prev_state = cur_state;
+                continue;
+            }
+
+            if (cs1) {
                 xbox_spi_select_port(0);
             }
-            else if (!(cur_state & XBOX_SPI_CS_P2_MASK)) {
+            else if (cs2) {
                 xbox_spi_select_port(1);
             }
             prev_state = cur_state;
         }
         ets_delay_us(2);
-        taskYIELD();
+        if ((++spin & 0x3FF) == 0) {
+            taskYIELD();
+        }
     }
 }
 
