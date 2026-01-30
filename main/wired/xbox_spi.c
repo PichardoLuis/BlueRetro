@@ -28,6 +28,7 @@
 #define XBOX_SPI_MAGIC_FB 0x52
 
 #define XBOX_SPI_FB_FLAG_RUMBLE 0x01
+#define XBOX_SPI_FB_FLAG_LED 0x02
 
 /* Shared SPI bus + per-port CS */
 #define XBOX_SPI_SCK_PIN 18
@@ -45,6 +46,7 @@ static uint8_t rx_packet[XBOX_SPI_PACKET_SIZE];
 static bool monitor_started = false;
 static uint8_t rumble_lf_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
 static uint8_t rumble_hf_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
+static uint8_t led_cache[XBOX_SPI_PORT_MAX] = {0xFF, 0xFF};
 _Static_assert((XBOX_SPI_PACKET_SIZE % 4) == 0, "XBOX SPI packet size must be 4-byte aligned");
 static struct spi_cfg cfg = {
     .hw = &SPI2,
@@ -130,6 +132,23 @@ static void xbox_spi_handle_fb(void) {
             adapter_q_fb(&fb_data);
         }
     }
+
+    if (flags & XBOX_SPI_FB_FLAG_LED) {
+        uint8_t led = rx_packet[6];
+
+        if (led_cache[port] == led) {
+            return;
+        }
+
+        led_cache[port] = led;
+
+        struct raw_fb fb_data = {0};
+        fb_data.header.wired_id = port;
+        fb_data.header.type = FB_TYPE_STATUS_LED;
+        fb_data.header.data_len = 1;
+        fb_data.data[0] = led;
+        adapter_q_fb(&fb_data);
+    }
 }
 
 static inline void xbox_spi_select_port(uint8_t port) {
@@ -142,6 +161,7 @@ static inline void xbox_spi_select_port(uint8_t port) {
     xbox_spi_build_packet(port);
 
     SPI2.slave.sync_reset = 1;
+    SPI2.slave.sync_reset = 0;
     SPI2.slave.trans_done = 0;
     SPI2.cmd.usr = 1;
 }
@@ -181,7 +201,12 @@ static void xbox_spi_monitor_cs(void) {
             }
             prev_state = cur_state;
         }
-        ets_delay_us(2);
+        if (((cur_state & cs_mask) == cs_mask) && !SPI2.slave.trans_done) {
+            ets_delay_us(50);
+        }
+        else {
+            ets_delay_us(2);
+        }
         if ((++spin & 0x3FF) == 0) {
             taskYIELD();
         }

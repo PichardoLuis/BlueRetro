@@ -36,10 +36,16 @@ void xbox_fb_to_generic(int32_t dev_mode, struct raw_fb *raw_fb_data, struct gen
                 fb_data->hf_pwr = raw_fb_data->data[1];
                 break;
             case FB_TYPE_STATUS_LED:
-                fb_data->state = 1;
                 fb_data->lf_pwr = 0;
                 fb_data->hf_pwr = 0;
-                fb_data->led = raw_fb_data->data[0];
+                if (raw_fb_data->header.data_len >= 1) {
+                    fb_data->state = 1;
+                    fb_data->led = raw_fb_data->data[0];
+                }
+                else {
+                    fb_data->state = 0;
+                    fb_data->led = 0;
+                }
                 break;
             default:
                 fb_data->state = 0;
