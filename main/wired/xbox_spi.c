@@ -117,37 +117,33 @@ static void xbox_spi_handle_fb(void) {
             uint8_t lf = rx_packet[4];
             uint8_t hf = rx_packet[5];
 
-            if (rumble_lf_cache[port] == lf && rumble_hf_cache[port] == hf) {
-                return;
+            if (rumble_lf_cache[port] != lf || rumble_hf_cache[port] != hf) {
+                rumble_lf_cache[port] = lf;
+                rumble_hf_cache[port] = hf;
+                struct raw_fb fb_data = {0};
+                fb_data.header.wired_id = port;
+                fb_data.header.type = FB_TYPE_RUMBLE;
+                fb_data.header.data_len = 2;
+                fb_data.data[0] = lf;
+                fb_data.data[1] = hf;
+                adapter_q_fb(&fb_data);
             }
-
-            rumble_lf_cache[port] = lf;
-            rumble_hf_cache[port] = hf;
-            struct raw_fb fb_data = {0};
-            fb_data.header.wired_id = port;
-            fb_data.header.type = FB_TYPE_RUMBLE;
-            fb_data.header.data_len = 2;
-            fb_data.data[0] = lf;
-            fb_data.data[1] = hf;
-            adapter_q_fb(&fb_data);
         }
     }
 
     if (flags & XBOX_SPI_FB_FLAG_LED) {
         uint8_t led = rx_packet[6];
 
-        if (led_cache[port] == led) {
-            return;
+        if (led_cache[port] != led) {
+            led_cache[port] = led;
+
+            struct raw_fb fb_data = {0};
+            fb_data.header.wired_id = port;
+            fb_data.header.type = FB_TYPE_STATUS_LED;
+            fb_data.header.data_len = 1;
+            fb_data.data[0] = led;
+            adapter_q_fb(&fb_data);
         }
-
-        led_cache[port] = led;
-
-        struct raw_fb fb_data = {0};
-        fb_data.header.wired_id = port;
-        fb_data.header.type = FB_TYPE_STATUS_LED;
-        fb_data.header.data_len = 1;
-        fb_data.data[0] = led;
-        adapter_q_fb(&fb_data);
     }
 }
 
