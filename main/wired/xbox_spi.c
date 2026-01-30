@@ -97,6 +97,9 @@ static inline void xbox_spi_read_buffer(uint8_t *data, uint32_t len) {
 }
 
 static void xbox_spi_handle_fb(void) {
+    /* rx_packet layout:
+     * [0]=magic, [1]=port, [2]=seq/reserved, [3]=flags, [4]=lf, [5]=hf, [6]=led
+     */
     if (rx_packet[0] != XBOX_SPI_MAGIC_FB) {
         return;
     }
@@ -175,12 +178,18 @@ static void xbox_spi_monitor_cs(void) {
             SPI2.slave.trans_done = 0;
             xbox_spi_read_buffer(rx_packet, XBOX_SPI_PACKET_SIZE);
             xbox_spi_handle_fb();
+            /* frame_cnt increments once per completed SPI transaction (trans_done). */
             ++wired_adapter.data[active_port].frame_cnt;
             xbox_spi_build_packet(active_port);
             SPI2.cmd.usr = 1;
         }
 
         if (change && SPI2.cmd.usr == 0) {
+            uint32_t stable_state = GPIO.in & cs_mask;
+            if (stable_state != cur_state) {
+                prev_state = stable_state;
+                continue;
+            }
             bool cs1 = !(cur_state & XBOX_SPI_CS_P1_MASK);
             bool cs2 = !(cur_state & XBOX_SPI_CS_P2_MASK);
 
